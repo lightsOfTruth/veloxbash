@@ -1,0 +1,165 @@
+#!/bin/bash
+
+declare -A COLOURS
+COLOURS[SET]='\033[0m'
+COLOURS[DARKGRAY]='\033[1;30m'
+COLOURS[RED]='\033[0;31m'
+COLOURS[WHITE]='\033[1;37m'
+COLOURS[GREEN]='\033[0;32m'
+COLOURS[YELLOW]='\033[1;33m'
+COLOURS[PURPLE]='\033[0;35m'
+
+if [[ "$(tty)" != "Running on terminal" ]];then
+    UI=false
+fi
+
+function echoColour() {
+  [[ "${UI}" == "true" ]] && return
+
+  if [ "${COLOURS[${1}]}" ]; then
+    echo -e "${COLOURS[${1}]}$2${COLOURS[SET]}"
+  else
+    echoColour WHITE "${1}"
+  fi
+}
+
+function echoColourTime() {
+  [[ "${UI}" == "true" ]] && return
+
+  if [ "${COLOURS[${1}]}" ]; then
+    echo -e "${COLOURS['DARKGRAY']}$(date '+%Y-%m-%d %H:%M:%S')${COLOURS[SET]}: ${COLOURS[${1}]}$2${COLOURS[SET]}"
+  else
+    echoColourTime WHITE "${1}"
+  fi
+}
+
+function is_root_user {
+    [ "$EUID" -eq 0 ] && return 0
+
+    echoColourTime RED "please run as sudo"
+    return 1
+}
+
+function is_directory {
+  if [ ! -d $1 ]; then
+    echoColourTime RED "Directory does not exist - searched $1"
+
+    return 1
+  fi
+
+  return 0
+}
+
+function use_existing_directory_question {
+    local DIR=$1
+    echoColour YELLOW "${DIR} directory already exists! Use this existing directory? (y/n)"
+    read USE_EXISTING_DIR </dev/tty
+
+    case ${USE_EXISTING_DIR} in
+          y|Y|yes)
+              is_directory_empty $DIR
+
+              [[ $? -ne 0 ]] && echoColour RED "Directory ${DEFAULT_DIR} is not empty. Select an empty directory and re run script" && return 1
+
+              echoColourTime GREEN "$DIR set for velox"
+
+          return 0
+          ;;
+          n|No|N)
+              echoColourTime GREEN "Cancelling. Please re run script and  select an empty directory.."
+              return 1
+          ;;
+          * )
+              echoColourTime RED "invalid option please enter y/Y, n|N"
+              return 1
+          ;;
+      esac
+}
+
+DEFAULT_DIR="/home/${SUDO_USER}/velox"
+VELOX_DIR=''
+function check_or_create_velox_directory {
+
+  echoColour WHITE "Enter directory to create velox folder (leave blank to create in ${DEFAULT_DIR})?! "
+
+  read directoryAnswer </dev/tty
+
+  if [ -z "$directoryAnswer" ]; then
+    echoColourTime "checking if directory ${DEFAULT_DIR} exists"
+    is_directory "${DEFAULT_DIR}"
+
+    if [ $? -eq 1 ]; then
+      echoColour YELLOW "creating directory at ${DEFAULT_DIR}"
+      mkdir -p "$DEFAULT_DIR"
+      [ $? -ne 0 ] && echoColourTime RED "Failed to create ${DEFAULT_DIR}" && return 1
+
+      return 0
+    fi
+
+     use_existing_directory_question $DEFAULT_DIR
+    [ $? -ne 0 ] && return 1
+
+    return 0
+  fi
+
+  ## User at this point has entered a directory. Check if the entered directory is a directory
+  [ ! -d $directoryAnswer ] && echoColour RED "$directoryAnswer is not a directory" && return 1
+
+  is_directory_empty $directoryAnswer
+
+  [[ $? -ne 0 ]] && return 1
+  VELOX_DIR=$directoryAnswer
+  echoColourTime GREEN "set $VELOX_DIR as Velox dir"
+}
+
+# function check_ssh_key {
+
+# }
+
+function clone_velox_repo {
+  echoColourTime DARKGRAY "Attempting to clone velox repo into $VELOX_DIR"
+  # ls -al /home/$SUDO_USER/.ssh
+  (GIT_SSH_COMMAND="ssh -o IdentitiesOnly=yes -i/home/${SUDO_USER}/.ssh/core_id_rsa -F /dev/null" git clone git@ssh.dev.azure.com:v3/etechtfs/fsociety/velox $VELOX_DIR)
+
+}
+
+function is_directory_empty {
+  [[ $# -eq 0 ]] && echoColourTime RED 'no args passed is_directory_empty' && return 1
+  local REAL_PATH=$(realpath -- $1)
+
+  echoColour DARKGRAY "checking if $1 directory is empty.."
+
+  is_directory $REAL_PATH
+
+  [ $? -ne 0 ] && return 1
+
+DIRECTORY_ITEMS_COUNT=$(ls -A ${REAL_PATH} | wc -l)
+  [[ $DIRECTORY_ITEMS_COUNT -eq 0 ]] && return 0
+
+  echoColourTime RED "${REAL_PATH} is not empty" && return 1
+}
+function run {
+  is_root_user
+
+  [ $? -ne 0 ] && return
+
+  check_or_create_velox_directory
+
+  [ $? -ne 0 ] && return 1
+
+  clone_velox_repo
+
+
+  # case ${directoryAnswer} in
+  #      )
+  #     ;;
+  #     * )
+  #         echoColourTime DARKGRAY "..creating velox directory in $Home/dev/"
+  #     ;;
+  # esac
+
+  return 0
+}
+
+run
+
