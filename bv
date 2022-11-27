@@ -1,5 +1,11 @@
 #!/bin/bash
 
+# source /home/dev/.nvm/versions/node/v16.15.1/bin/node
+# source ~/.nvm/nvm.sh
+
+# ls -al ~/dev/
+# /mnt/c/Users/haque/AppData/Roaming/npm -v
+
 declare -A COLOURS
 COLOURS[SET]='\033[0m'
 COLOURS[DARKGRAY]='\033[1;30m'
@@ -34,6 +40,7 @@ function echoColourTime() {
 }
 
 function is_root_user {
+  echo $EUID
     [ "$EUID" -eq 0 ] && return 0
 
     echoColourTime RED "please run as sudo"
@@ -104,7 +111,12 @@ function check_or_create_velox_directory {
   fi
 
   ## User at this point has entered a directory. Check if the entered directory is a directory
-  [ ! -d $directoryAnswer ] && echoColour RED "$directoryAnswer is not a directory" && return 1
+  if [ ! -d $directoryAnswer ]; then
+    echoColour RED "$directoryAnswer is not a directory";
+
+    create_a_dir_question $directoryAnswer
+    [ $? -ne 0 ] && return 1
+  fi
 
   is_directory_empty $directoryAnswer
 
@@ -120,7 +132,7 @@ function check_or_create_velox_directory {
 function clone_velox_repo {
   echoColourTime DARKGRAY "Attempting to clone velox repo into $VELOX_DIR"
   # ls -al /home/$SUDO_USER/.ssh
-  (GIT_SSH_COMMAND="ssh -o IdentitiesOnly=yes -i/home/${SUDO_USER}/.ssh/id_rsa -F /dev/null" git clone git@ssh.dev.azure.com:v3/etechtfs/fsociety/velox $VELOX_DIR)
+  (GIT_SSH_COMMAND="ssh -o IdentitiesOnly=yes -i/home/${USER}/.ssh/id_rsa -F /dev/null" git clone git@ssh.dev.azure.com:v3/etechtfs/fsociety/velox $VELOX_DIR)
 
 }
 
@@ -134,51 +146,83 @@ function is_directory_empty {
 
   [ $? -ne 0 ] && return 1
 
-DIRECTORY_ITEMS_COUNT=$(ls -A ${REAL_PATH} | wc -l)
+  DIRECTORY_ITEMS_COUNT=$(ls -A ${REAL_PATH} | wc -l)
   [[ $DIRECTORY_ITEMS_COUNT -eq 0 ]] && return 0
 
   echoColourTime RED "${REAL_PATH} is not empty" && return 1
+}
+
+function install {
+      [[ $# -eq 0 ]] && echoColourTime RED 'no args passed to is_bare_git' && return 1
+      ls package.json 2>/dev/null
+      [ $? -ne 0 ] && echoColour RED "no package.json file in ${1}. continuing ..." && return 2
+      if [ -f ./package-lock.json ]; then
+        rm package-lock.json
+      fi
+      update_npmrc
+      npm install --legacy-peer-deps
+
+      revert_npmrc
+      [ $? -ne 0 ] && echoColour RED "${dir_array[$dirIndex]} npm failed" && return 2
 }
 
 function run_npm_install {
    npm --version
   (
     cd $VELOX_DIR
-    local reall=$(realpath -- ./)
-    echo $reall
+    local real=$(realpath -- ./)
+    echo $real
     echoColourTime DARKGRAY "running npm install in each service"
-    IFS=$'\n' read -r -d '' -a dir_array < <(find $reall -maxdepth 1 -type d)
+    IFS=$'\n' read -r -d '' -a dir_array < <(find $real -maxdepth 1 -type d)
 
-    for ((dirIndex=0; dirIndex < ${#dir_array[@]}; dirIndex++)); do 
+    for ((dirIndex=0; dirIndex < ${#dir_array[@]}; dirIndex++)); do
       cd ${dir_array[$dirIndex]}
-      echo "inside $(pwd)"
-      ls package.json 2>/dev/null
-      [ $? -ne 0 ] && echoColour RED "no package.json file in ${dir_array[$dirIndex]}. continuing ..." && continue
-      update_npmrc
-      npm install
-      revert_npmrc
-      [ $? -ne 0 ] && echoColour RED "${dir_array[$dirIndex]} npm failed" && continue
+      echo "-----------------------------"
+      echo
+      echoColour YELLOW "running install in service -- $(pwd)"
+
+      if [ $(basename ${dir_array[$dirIndex]}) == "lib" ] && [ -d  "${dir_array[$dirIndex]}/core" ]; then
+        (cd "${dir_array[$dirIndex]}/core"
+        install ${dir_array[$dirIndex]})
+      fi
+
+      if [ $(basename ${dir_array[$dirIndex]}) == "lib" ] && [ -d  "${dir_array[$dirIndex]}/http" ]; then
+        (cd "${dir_array[$dirIndex]}/core"
+        install ${dir_array[$dirIndex]}
+        )
+      fi
+
+      if [ $(basename ${dir_array[$dirIndex]}) != "lib" ]; then
+
+        install ${dir_array[$dirIndex]}
+
+        [ $? -eq 2 ] && continue
+
+      fi
+
+
+
+
+
     done
   )
 }
 
 function update_npmrc {
-  ls .npmrc 2>/dev.null
+  ls .npmrc 2>/dev/null
   if [ $? -eq 0 ]; then
-        echoColour YELLOW "updating"
     mv .npmrc .npmrc-back
     echo -e "@etech:registry=https://pkgs.dev.azure.com/etechtfs/_packaging/etech/npm/registry/\n//pkgs.dev.azure.com/etechtfs/_packaging/etech/npm/registry/:username=etech\n//pkgs.dev.azure.com/etechtfs/_packaging/etech/npm/registry/:_password=${TOKEN}\n//pkgs.dev.azure.com/etechtfs/_packaging/etech/npm/registry/:email=development@etech.net" > ./.npmrc
-    cat ./.npmrc
+    # cat ./.npmrc
   fi
 }
 
 function revert_npmrc {
-  echo "revert"
-  ls -al
-  ls .npmrc-back 2>/dev.null
+  # echo "revert"
+  # ls -al
+  ls .npmrc-back 2>/dev/null
 
     if [ $? -eq 0 ]; then
-      echoColour YELLOW "revertings"
       rm .npmrc
       mv .npmrc-back  .npmrc
     fi
@@ -206,13 +250,36 @@ function check_required_variables {
   echoColour "please enter npm token"
 read token </dev/tty
 
- [ -z "$token" ] && echoColour "please enter npm token" && return 1
+ [ -z "$token" ] && echoColour RED "Failed to enter npm token" && return 1
 
   TOKEN=$token
 }
 
+function create_a_dir_question {
+  [ $# -eq 0 ] ||  [ -z $1 ] && echoColour RED "no args passed to create a dir question" && return 1
+  [ -z $1 ] && echoColour RED "empty string passed" && return 1
+
+  FULL_PATH=$(realpath -- $1)
+
+  echoColour YELLOW "Create a directory at ${FULL_PATH}? (y/n)"
+
+  read CREATE_DIR </dev/tty
+
+  if [[ $CREATE_DIR == @(y|Y) ]] ; then
+    mkdir $FULL_PATH
+
+    [ $? -ne 0 ] && echoColour RED "failed to create dir ${FULL_PATH}" && return 1
+
+    echoColour "Created directory $FULL_PATH"
+  fi
+
+ return 0
+}
+
 function run {
-  is_root_user
+  # is_root_user
+
+
 
   [ $? -ne 0 ] && return
   check_required_variables
@@ -231,6 +298,7 @@ function run {
 
   [ $? -ne 0 ] && return 1
 
+  echo "NPM_VSTS_TOKEN=${TOKEN}" > .env
 
 
 
@@ -254,5 +322,5 @@ function run {
 # echo -e "@etech:registry=https://pkgs.dev.azure.com/etechtfs/_packaging/etech/npm/registry/\n//pkgs.dev.azure.com/etechtfs/_packaging/etech/npm/registry/:username=etech\n//pkgs.dev.azure.com/etechtfs/_packaging/etech/npm/registry/:_password=${TOKEN}\n//pkgs.dev.azure.com/etechtfs/_packaging/etech/npm/registry/:email=development@etech.net" > ./.npmrc3
 
 run
- 
+
 
