@@ -83,7 +83,7 @@ function use_existing_directory_question {
       esac
 }
 
-DEFAULT_DIR="/home/${SUDO_USER}/velox"
+DEFAULT_DIR="/home/${USER}/velox"
 VELOX_DIR=''
 TOKEN=''
 function check_or_create_velox_directory {
@@ -312,14 +312,6 @@ function run {
 
   return 0
 }
-# which npm
-# if [ $? -ne 0 ]; then
-#   apt update -y
-#   apt install npm -y
-#   npm --version
-# fi
-# echo "reating"
-# echo -e "@etech:registry=https://pkgs.dev.azure.com/etechtfs/_packaging/etech/npm/registry/\n//pkgs.dev.azure.com/etechtfs/_packaging/etech/npm/registry/:username=etech\n//pkgs.dev.azure.com/etechtfs/_packaging/etech/npm/registry/:_password=${TOKEN}\n//pkgs.dev.azure.com/etechtfs/_packaging/etech/npm/registry/:email=development@etech.net" > ./.npmrc3
 
 run
 
