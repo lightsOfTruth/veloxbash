@@ -155,7 +155,7 @@ function is_directory_empty {
 function install {
       [[ $# -eq 0 ]] && echoColourTime RED 'no args passed to is_bare_git' && return 1
       ls package.json 2>/dev/null
-      [ $? -ne 0 ] && echoColour RED "no package.json file in ${1}. continuing ..." && return 2
+      [ $? -ne 0 ] && echoColour YELLOW "no package.json file in ${1}. continuing ..." && return 2
       if [ -f ./package-lock.json ]; then
         rm package-lock.json
       fi
@@ -179,7 +179,8 @@ function run_npm_install {
       cd ${dir_array[$dirIndex]}
       echo "-----------------------------"
       echo
-      echoColour YELLOW "running install in service -- $(pwd)"
+      echoColour DARKGRAY "running install in service -- $(pwd)"
+      echo "-----------------------------"
 
       if [ $(basename ${dir_array[$dirIndex]}) == "lib" ] && [ -d  "${dir_array[$dirIndex]}/core" ]; then
         (cd "${dir_array[$dirIndex]}/core"
